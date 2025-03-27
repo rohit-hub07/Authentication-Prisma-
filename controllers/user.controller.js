@@ -109,9 +109,13 @@ const loginUser = async (req, res) => {
         success: false,
       });
     }
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.SECRET, {
-      expiresIn: "24h",
-    });
+    const token = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.SECRET,
+      {
+        expiresIn: "24h",
+      }
+    );
     const cookieOptions = {
       httpOnly: true,
     };
@@ -179,23 +183,22 @@ const verifyController = async (req, res) => {
 const logoutController = async (req, res) => {
   try {
     const token = req.user;
-    if(!token){
+    if (!token) {
       return res.status(400).json({
         message: "You need you login first!",
         success: false,
-      })
+      });
     }
     const user = await prisma.user.findUnique({
       where: {
-        id: token.id
-      }
-    })
-    console.log(user)
-    if(!user){
+        id: token.id,
+      },
+    });
+    if (!user) {
       return res.status(400).json({
         message: "Can not find the user!",
         success: false,
-      })
+      });
     }
     res.cookie("token", " ");
     res.status(201).json({
@@ -228,6 +231,7 @@ const forgetpasswordController = async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { email },
     });
+
     if (!user) {
       return res.status(400).json({
         message: "User doesn't exist!",
@@ -235,13 +239,17 @@ const forgetpasswordController = async (req, res) => {
       });
     }
     // user.passwordResetExpiry = Date.now() + 10 * 60 * 1000;
-    user = await prisma.user.update({
-      where: {id: user.id},
-      data:{
-        passwordResetToken: Date.now() + 10 * 60 * 1000,
-      }
-    })
-    const resetPasswordToken = crypto.randomBytes(32).toString(hex);
+    const resetPasswordToken = crypto.randomBytes(32).toString("hex");
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetExpiry: new Date(Date.now() + 10 * 60 * 1000),
+        passwordResetToken: resetPasswordToken,
+      },
+    });
+    
+
+
     //send mail
     const transporter = nodemailer.createTransport({
       host: process.env.MAILTRAP_HOST,
@@ -258,7 +266,7 @@ const forgetpasswordController = async (req, res) => {
       to: user.email,
       subject: "Verify your email",
       text: `Please click on the following link: 
-        ${process.env.BASE_URL}/users/verify/${resetPasswordToken}
+        ${process.env.BASE_URL}/users/resetpassword/${resetPasswordToken}
         `,
     };
     await transporter.sendMail(mailOption);
@@ -279,17 +287,17 @@ const forgetpasswordController = async (req, res) => {
 const resetPasswordController = async (req, res) => {
   try {
     const { token } = req.params;
-    const { newPassword } = req.body;
-    if(!newPassword){
+    const { password } = req.body;
+    if (!password) {
       return res.status(401).json({
         message: "All fields are required!",
         success: false,
-      })
+      });
     }
     const user = await prisma.user.findFirst({
       where: {
         passwordResetToken: token,
-        passwordResetExpiry: { gt: Date.now() },
+        passwordResetExpiry: { gt: new Date(Date.now()) },
       },
     });
     if (!user) {
@@ -298,35 +306,57 @@ const resetPasswordController = async (req, res) => {
         success: false,
       });
     }
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    
-    user = await prisma.user.update({
-      where: {id: user.id},
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
       data: {
-       password: hashedPassword,
-      }
-    })
+        password: hashedPassword,
+      },
+    });
     res.status(201).json({
       message: "Password reset successfully!",
       success: true,
-    })
+    });
   } catch (error) {
     return res.status(201).json({
       message: "Something went wrong!",
       success: false,
       error,
-    })
+    });
   }
 };
 
-const userProfileController = async(req, res) => {
-  const {profile } = req.user;
-  console.log(token);
+const userProfileController = async (req, res) => {
+  try {
+  const { id } = req.user;
+  console.log("inside userProfile ID: ",id)
   const user = await prisma.user.findUnique({
-    
+    where: { id }
+  });
+  if(!user){
+    return res.status(400).json({
+      message: "Please login first!",
+      success: false,
+    })
+  }
+   res.status(201).json({
+    user:{
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+    },
+    success: true,
   })
-
-}
+  } catch (error) {
+    return res.status(400).json({
+      message: "Something went wrong",
+      success: false,
+      error,
+    })
+  }
+};
 
 export {
   registerController,
@@ -335,5 +365,5 @@ export {
   forgetpasswordController,
   resetPasswordController,
   logoutController,
-  userProfileController
+  userProfileController,
 };
